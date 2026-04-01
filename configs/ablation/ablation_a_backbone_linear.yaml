@@ -1,0 +1,119 @@
+# Ablation A: backbone linear
+# =============================================================================
+# Ablation (a): Backbone + linear head only
+# ConvNeXt-V2-Base backbone, plain linear classification head.
+# No diffusion guidance, no dual-upsampling, no FeatureFilters,
+# no GlobalHead+SMC, no DIMF, no IGS, no SBI augmentation.
+#
+# HOW: relation_data=False disables dual-identity pairs (no DIMF).
+#      ablation.use_diffusion_loss=false  → zero-weight diffusion loss.
+#      ablation.use_dual_upsample=false   → skip upsample_conv branches.
+#      ablation.use_mamba_head=false      → use bare self.fc (linear head).
+#      ablation.use_igl=false             → no IGS losses.
+#      ablation.use_gap_loss=false        → no gap loss.
+#      transform.aug.enable=false         → no SBI (SBI is gated on aug.enable).
+# =============================================================================
+
+seed: 3407
+torch_home: ""
+froze: false
+ckpt_path: null
+
+# ── ablation switches (read by diffusionfake.py / train.py) ───────────────
+ablation:
+  use_diffusion_loss: false    # (a) no diffusion guidance at all
+  use_dual_upsample:  false    # (a) no dual upsampling + FeatureFilters
+  use_mamba_head:     false    # (a) bare linear head (self.fc)
+  use_global_smc:     false    # (a) no GlobalHead + SMC
+  use_dimf:           false    # (a) no Dual-Identity Mamba Fusion
+  use_igl:            false    # (a) no IGL loss
+  use_gap_loss:       false    # (a) no gap-regression loss
+  dual_drop_prob:     0.0      # irrelevant but explicit
+
+dataset:
+  name: "ffpp_rela"
+  ffpp_rela:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/ffpp"
+    data_types: ""
+    compressions: "c23"
+    num_frames: 50
+    methods: ["youtube", "Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures"]
+    has_mask: false
+    balance: true
+    relation_data: false      # (a) no source/target pairs needed
+    similarity: false
+    similarity_path: null
+    use_splits: true
+    strict_splits: true
+    splits_dirname: "splits"
+    csv_dirname: "split_csv"
+    random_patch: null
+
+transform:
+  image_size: 256
+  mean: [0.5, 0.5, 0.5]
+  std:  [0.5, 0.5, 0.5]
+  aug:
+    enable: false              # (a) no augmentation, no SBI
+    jpeg_quality: [30, 100]
+    blur_prob: 0.0
+    noise_prob: 0.0
+    color_jitter_prob: 0.0
+    grayscale_prob: 0.0
+    random_erasing_prob: 0.0
+
+train:
+  epochs: 10
+  lr: 2e-5
+  weight_decay: 5e-4
+  batch_size: 32
+  accumulate_grad_batches: 4
+  num_workers: 4
+  shuffle: true
+  drop_last: true
+  logger_freq: 5000
+  resume_ckpt: null           # fresh start for each ablation
+  grad_clip_val: 0.5
+  scheduler:
+    name: onecycle
+    interval: step
+    onecycle:
+      pct_start: 0.08
+      div_factor: 25.0
+      final_div_factor: 10000.0
+      anneal_strategy: cos
+
+val:
+  batch_size: 32
+  num_workers: 4
+  shuffle: false
+  drop_last: false
+  max_items: null
+
+test:
+  batch_size: 1
+  num_workers: 2
+  shuffle: false
+  drop_last: false
+  threshold: 0.5
+  max_items: null
+
+wandb:
+  project: "DFD_ablation"
+  group: "ablation_study"
+  save_code: true
+
+experiment:
+  root_dir: "experiments/ablation"
+  name: "a_backbone_linear"
+
+model:
+  backbone: "convnextv2_base"
+
+checkpoint:
+  monitor: "v/eer"
+  mode: min
+  save_top_k: 2
+  save_last: true
+  best_filename: "best-eer-epoch={epoch:02d}"
+  every_filename: "epoch={epoch:02d}"

@@ -1,0 +1,142 @@
+# configs/single/dfd.yaml
+# ═══════════════════════════════════════════════════════════════════════════
+# Single-domain: Train on DFD (DeepFakeDetection / Google-JigSaw).
+#
+# DFD specifics:
+#   - 363 real videos (professional studio actors, high quality)
+#   - 3068 fake videos (high-quality DeepFakeDetection method)
+#   - 1:8.5 real:fake ratio → heavy class imbalance
+#   - Model trained ONLY on FF++ typically gets AUC=0.50 on DFD because
+#     DFD actors look very different from FF++ YouTubers
+#   - Training directly on DFD resolves the domain mismatch
+#
+# Usage:
+#   python train.py -c configs/train_dfd.yaml
+# ═══════════════════════════════════════════════════════════════════════════
+
+seed: 3407
+torch_home: ""
+froze: false
+ckpt_path: null
+
+dataset:
+  name: "dfd"
+
+  dfd:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/dfd"
+    split_csv: "/scratch/sahil/projects/img_deepfake/datasets/dfd/split_csv2/dfd_train.csv"
+    num_frames: 50
+    image_size: 256
+    min_frames: 1
+    mtcnn_suffix: "-mtcnn"
+    strict_csv: false
+    skip_bad_images: true
+    methods: "both"
+    eval_k_frames_per_video: 50
+    eval_balance_classes: true   # balance real/fake for val EER
+    sbi_prob: 0.35               # SBI on real frames (critical for DFD)
+    freq_aug_prob: 0.25
+    use_sbi: true
+
+val_dataset:
+  name: "dfd"
+  dfd:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/dfd"
+    split_csv: "/scratch/sahil/projects/img_deepfake/datasets/dfd/split_csv2/dfd_test.csv"
+    num_frames: 50
+    image_size: 256
+    min_frames: 1
+    mtcnn_suffix: "-mtcnn"
+    strict_csv: false
+    skip_bad_images: true
+    methods: "both"
+    eval_k_frames_per_video: 50
+    eval_balance_classes: true
+    sbi_prob: 0.0
+    freq_aug_prob: 0.0
+    use_sbi: false
+
+transform:
+  image_size: 256
+  mean: [0.5, 0.5, 0.5]
+  std:  [0.5, 0.5, 0.5]
+  aug:
+    enable: true
+    jpeg_quality:        [30, 100]
+    blur_prob:           0.25
+    noise_prob:          0.25
+    color_jitter_prob:   0.30
+    grayscale_prob:      0.08
+    random_erasing_prob: 0.15
+
+train:
+  epochs: 60
+  lr: 5e-6
+  weight_decay: 5e-4
+  batch_size: 32
+  accumulate_grad_batches: 2
+  num_workers: 4
+  shuffle: true
+  drop_last: true
+  logger_freq: 2000
+  resume_ckpt: auto
+  grad_clip_val: 0.3
+  head_lr_mult: 1.1
+  scheduler:
+    name: cosine_warmup
+    interval: step
+    cosine_warmup:
+      warmup_steps: 1000
+      min_lr_factor: 0.05
+
+logit_saturation_monitor:
+  collapse_thr:        0.95
+  lambda_rescue:       0.30
+  lambda_target:       1.00
+  restore_epochs:      4
+  label_smooth_start:  0.10
+  label_smooth_end:    0.05
+  label_smooth_warmup: 5
+
+early_stopping:
+  monitor:   "v/eer"
+  mode:      "min"
+  patience:  15
+  min_delta: 0.0005
+
+val:
+  batch_size: 64
+  num_workers: 4
+  shuffle: false
+  drop_last: false
+  max_items: null
+
+test:
+  batch_size: 1
+  num_workers: 2
+  shuffle: false
+  drop_last: false
+  threshold: 0.5
+  max_items: null
+
+wandb:
+  project: "DFD_3"
+  group:   "DFD_single"
+  save_code: true
+
+experiment:
+  root_dir: "experiments"
+  name: "DFD_v1"
+
+model:
+  backbone: "convnextv2_base"
+
+checkpoint:
+  monitor:          "v/eer"
+  mode:             min
+  save_top_k:       3
+  save_last:        true
+  best_filename:    "best-eer-epoch={epoch:02d}"
+  every_filename:   "epoch={epoch:02d}"
+  # save_every_n_epochs: 5
+  save_epochs: []

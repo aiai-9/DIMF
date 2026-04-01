@@ -1,0 +1,111 @@
+# configs/eval_all_datasets.yaml  [FIXED v2]
+# =============================================================
+# FIXES vs original:
+#
+# FIX-C1 (CRITICAL): DFD eval_k_frames_per_video
+#   Original: eval_k_frames_per_video: 1
+#   Bug: with 344 videos * 1 frame = 344 samples (should be 16000+)
+#   Fix: eval_k_frames_per_video: 50 (use up to 50 frames per video for
+#        frame-level metrics). Also set --use_all_frames in the shell script
+#        to override this to 9999 for the most thorough evaluation.
+#
+# FIX-C2: eval_balance_classes set consistently
+#   DFD has 39 real vs 305 fake (very unbalanced). Keep eval_balance_classes:false
+#   to report real-world performance, but note this makes EER less meaningful.
+#
+# FIX-C3: Added eval section with all parameters documented
+# =============================================================
+
+seed: 3407
+torch_home: ""
+froze: false
+ckpt_path: null
+
+dataset:
+  name: "ffpp_rela"
+
+  ffpp_rela:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/ffpp"
+    data_types: ""
+    compressions: "c23"
+    num_frames: 50
+    methods: ["youtube", "Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures"]
+    has_mask: false
+    balance: true
+    relation_data: true
+    similarity: false
+    similarity_path: null
+    use_splits: true
+    strict_splits: true
+    splits_dirname: "splits"
+    csv_dirname: "split_csv2"
+
+  celeb_df:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/celebdf"
+    num_frames: 50
+    methods: "both"
+    control: true
+    alb: true
+    split_csv: "/scratch/sahil/projects/img_deepfake/datasets/celebdf/split_csv2/celeb_df_v2_test.csv"
+    strict_csv: false
+    min_frames: 1
+    mtcnn_suffix: "-mtcnn"
+    image_size: 256
+    skip_bad_images: true
+
+  dfd:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/dfd"
+    split_csv: "/scratch/sahil/projects/img_deepfake/datasets/dfd/split_csv2/dfd_test.csv"
+    num_frames: 50
+    image_size: 256
+    min_frames: 1
+    mtcnn_suffix: "-mtcnn"
+    strict_csv: false
+    skip_bad_images: true
+    methods: "both"
+    # FIX-C1: was 1 (only 344 frames total). Now 50 = up to 50 frames/video.
+    # Run eval with --use_all_frames to use ALL frames (9999 effective limit).
+    eval_k_frames_per_video: 50
+    eval_balance_classes: false
+    eval_seed: 1234
+
+  diffswap:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/diffswap"
+    split_csv: "/scratch/sahil/projects/img_deepfake/datasets/diffswap/split_csv2/diffswap_test.csv"
+    image_size: 256
+    strict_csv: false
+    skip_bad_images: true
+    methods: "both"
+
+  wild_deepfake:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/wild_deepfake"
+    split_csv: "/scratch/sahil/projects/img_deepfake/datasets/wild_deepfake/split_csv2/wilddeepfake_test.csv"
+    image_size: 256
+    strict_csv: false
+    skip_bad_images: true
+    methods: "both"
+
+transform:
+  image_size: 256
+  mean: [0.5, 0.5, 0.5]
+  std:  [0.5, 0.5, 0.5]
+  # No aug during eval — clean inference only
+
+model:
+  backbone: "convnextv2_base"   # MUST match training config exactly
+                                 # Options: tf_efficientnet_b4_ns | convnextv2_base | convnextv2_large
+
+eval:
+  model_config: "configs/diffusionfake.yaml"
+  batch_size: 64
+  num_workers: 4
+  threshold: 0.5
+
+  datasets:
+    - dfd
+    - diffswap
+    - wild_deepfake
+    - celeb_df
+    - ffpp_rela
+  
+    
