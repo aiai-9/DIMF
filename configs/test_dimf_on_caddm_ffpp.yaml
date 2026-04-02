@@ -1,0 +1,13 @@
+model_config: "configs/diffusionfake.yaml"
+ckpt: "experiments/FFpp_3/ckpt/best-eer-epoch=18.ckpt"
+backbone: "convnextv2_base"
+
+image_size: 256
+batch_size: 8
+num_workers: 4
+use_source_path: true
+
+dataset:
+  name: "FF++"
+  img_path: "/scratch/sahil/projects/img_deepfake/code_2/CADDM/test_images"
+  ld_path: "/scratch/sahil/projects/img_deepfake/code_2/CADDM/test_images/ldm.json"

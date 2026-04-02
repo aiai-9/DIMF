@@ -1,0 +1,177 @@
+# configs/train_celebdf.yaml  [FIXED v2]
+# ═══════════════════════════════════════════════════════════════════════════════
+# CelebDF-v2 Training Configuration — Fixes for WandB chart issues:
+#
+# PROBLEMS OBSERVED in WandB:
+#   1. v/eer_thr → 0.999 (stuck near 1.0): classifier outputting near-1 logits
+#      for all samples → threshold degeneracy
+#   2. v/auc oscillating (0.982–0.990): LR instability, too-aggressive scheduling
+#   3. v/eer volatile but not converging smoothly: bad LR/regularization balance
+#
+# FIXES APPLIED in this config:
+#   A. Lower LR (5e-6 from 1e-5): CelebDF single-domain needs careful LR.
+#      At 1e-5, classifier over-trains quickly on CelebDF structure.
+#   B. Warmup scheduler (cosine_warmup): Plateau with patience=2 was too
+#      aggressive on CelebDF — reduces LR every 2 epochs before model converges.
+#      Cosine warmup gives 4-epoch ramp then smooth decay = more stable AUC.
+#   C. grad_clip_val=0.3 (from 0.5): Tighter clip prevents large gradient spikes
+#      from the BCE term during early training that causes logit saturation.
+#   D. Larger val batch size (64): Better EER/AUC estimation per epoch.
+#   E. accumulate_grad_batches=2 (from 4): More frequent weight updates with
+#      lower LR gives smoother training signal.
+#   F. early_stopping patience=15 (from 10): More patience given lower LR.
+#   G. Removed `resume_ckpt: auto_best` — use `auto` for CelebDF fine-tuning
+#      from last checkpoint. Use null for fresh start.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+seed: 3407
+torch_home: ""
+froze: false
+ckpt_path: null
+
+dataset:
+  name: "celeb_df"
+  celeb_df:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/celebdf"
+    num_frames: 50
+    methods: "both"
+    control: true
+    alb: true
+    split_csv: "/scratch/sahil/projects/img_deepfake/datasets/celebdf/split_csv2/celeb_df_v2_train.csv"
+    strict_csv: false
+    min_frames: 1
+    mtcnn_suffix: "-mtcnn"
+    image_size: 256
+    skip_bad_images: true
+  ffpp_rela:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/ffpp"
+    data_types: ""
+    compressions: "c23"
+    num_frames: 50
+    methods: ["youtube", "Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures"]
+    has_mask: false
+    balance: true
+    relation_data: true
+    similarity: false
+    similarity_path: null
+    use_splits: true
+    strict_splits: true
+    splits_dirname: "splits"
+    csv_dirname: "split_csv"
+    random_patch: null
+
+val_dataset:
+  name: "celeb_df"
+  celeb_df:
+    data_root: "/scratch/sahil/projects/img_deepfake/datasets/celebdf"
+    num_frames: 50
+    methods: "both"
+    control: true
+    alb: true
+    split_csv: "/scratch/sahil/projects/img_deepfake/datasets/celebdf/split_csv2/celeb_df_v2_val.csv"
+    strict_csv: false
+    min_frames: 1
+    mtcnn_suffix: "-mtcnn"
+    image_size: 256
+    skip_bad_images: true
+
+transform:
+  image_size: 256
+  mean: [0.5, 0.5, 0.5]
+  std: [0.5, 0.5, 0.5]
+  aug:
+    enable: true
+    jpeg_quality: [30, 100]
+    blur_prob: 0.25
+    noise_prob: 0.25
+    color_jitter_prob: 0.30
+    grayscale_prob: 0.08
+    random_erasing_prob: 0.15
+
+train:
+  epochs: 60
+  # FIX-A: Halved LR — prevents fast logit saturation on single-domain CelebDF
+  lr: 5e-6
+  weight_decay: 5e-4
+  batch_size: 32
+  # FIX-E: Halved accumulation — more frequent updates at lower LR = smoother
+  accumulate_grad_batches: 2
+  num_workers: 4
+  shuffle: true
+  drop_last: true
+  logger_freq: 2000
+  # FIX-G: Start from last checkpoint (use null for fresh start)
+  resume_ckpt: auto
+  # FIX-C: Tighter gradient clipping prevents logit spike during early BCE training
+  grad_clip_val: 0.3
+  head_lr_mult: 1.1
+  # FIX-B: Cosine warmup replaces plateau
+  # Plateau with patience=2 was reducing LR too aggressively on CelebDF.
+  # Cosine warmup: 1000-step linear ramp → smooth cosine decay to 5% of max LR.
+  # This gives consistent, predictable LR schedule that doesn't over-react to
+  # epoch-level noise in EER (which oscillates ±0.003 naturally).
+  scheduler:
+    name: cosine_warmup
+    interval: step
+    cosine_warmup:
+      warmup_steps: 1000   # ~2 epochs at batch_size=32, accum=2
+      min_lr_factor: 0.05  # floor at 5% of peak LR
+
+# FIX-T1/T2: Logit saturation monitoring and label smoothing warm-down.
+# This is the primary defence against eer_thr → 0.999 collapse.
+# If v/eer_thr > 0.95 is detected, lambda_cls is temporarily reduced
+# to 0.3 and restored linearly over 4 epochs. Label smoothing starts at
+# ε=0.10 and decays to 0.05 over 5 epochs to prevent early-epoch saturation.
+logit_saturation_monitor:
+  collapse_thr: 0.95          # eer_thr above this triggers rescue
+  lambda_rescue: 0.3          # temporary lambda_cls during rescue
+  lambda_target: 1.0          # lambda_cls to restore to
+  restore_epochs: 4           # epochs to restore over
+  label_smooth_start: 0.10    # ε at epoch 0
+  label_smooth_end: 0.05      # ε target after warmup
+  label_smooth_warmup: 5      # epochs to decay ε over
+
+early_stopping:
+  monitor: "v/eer"
+  mode: "min"
+  # FIX-F: More patience — lower LR needs more time to improve EER
+  patience: 15
+  min_delta: 0.0005  # FIX: Tighter delta so tiny EER improvements count
+
+val:
+  # FIX-D: Larger val batch for better EER/AUC statistics per epoch
+  batch_size: 64
+  num_workers: 4
+  shuffle: false
+  drop_last: false
+  max_items: null
+
+test:
+  batch_size: 1
+  num_workers: 2
+  shuffle: false
+  drop_last: false
+  threshold: 0.5
+  max_items: null
+
+wandb:
+  project: "DFD_3"
+  group: "CelebDF_train"
+  save_code: true
+
+experiment:
+  root_dir: "experiments"
+  name: "CelebDF_v3"  # New run with all fixes
+
+model:
+  backbone: "convnextv2_base"
+
+checkpoint:
+  monitor: "v/eer"
+  mode: min
+  save_top_k: 3
+  save_last: true
+  best_filename: "best-eer-epoch={epoch:02d}"
+  every_filename: "epoch={epoch:02d}"
+
+  

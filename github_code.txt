@@ -1,0 +1,36 @@
+cd /d D:\Yeshiva\Spring26\research_work\github\DIMF
+git status
+git add .
+git status
+git commit -m "modified"
+git push origin main
+
+
+
+
+====================================================
+
+Useful checks
+
+See current remote:
+
+git remote -v
+
+See current branch:
+
+git branch
+
+See commit history:
+
+git log --oneline -5
+
+
+=============================================
+cd /d D:\Yeshiva\Spring26\research_work\github\DIMF
+git rm -r *
+git commit -m "Remove repository contents"
+git push origin main
+
+git add -A
+git commit -m "Remove repository contents"
+git push origin main
